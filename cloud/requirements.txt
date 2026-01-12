@@ -1,0 +1,6 @@
+chess
+torch
+numpy
+zstandard
+tqdm
+matplotlib

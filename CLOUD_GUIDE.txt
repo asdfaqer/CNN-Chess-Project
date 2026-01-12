@@ -1,0 +1,206 @@
+# GCP Chess Data Generation - Complete Operations Guide
+# =====================================================
+# Last Updated: 2026-01-09
+
+## Overview
+This guide covers generating new chess training data on Google Cloud Platform using
+Spot VMs. Each VM runs a Docker container with Stockfish to generate Multi-PV data.
+
+## Project Configuration
+- Project ID: gen-lang-client-0213220308
+- Region: us-central1
+- Zone: us-central1-a
+- Bucket: gs://chess-migration-gen-lang-c
+- Docker Image: us-central1-docker.pkg.dev/gen-lang-client-0213220308/chess-images/chess-migration:latest
+
+## Quota Limits
+- CPUS_ALL_REGIONS: 32 vCPUs total (global limit)
+- This means you can run at most 4x n2-standard-8 VMs simultaneously
+
+
+================================================================================
+QUICK START - Generating New Data
+================================================================================
+
+1. REBUILD DOCKER IMAGE (if you changed any Python files)
+   ---------------------------------------------------------
+   cd D:\Chess CNN\exp_model\cloud
+   rebuild_image.bat
+   
+   Time: ~10 minutes (downloads Stockfish, installs PyTorch)
+
+2. LAUNCH GENERATION VMs
+   ---------------------------------------------------------
+   cd D:\Chess CNN\exp_model
+   python cloud/generate_cloud.py --launch 4 --games 20000 --machine medium
+   
+   This launches 4 VMs, each generating 20,000 games.
+   
+   Available machine types:
+   - test:   n2-standard-2  (2 vCPUs,  8GB RAM) - for testing
+   - small:  n2-standard-4  (4 vCPUs, 16GB RAM)
+   - medium: n2-standard-8  (8 vCPUs, 32GB RAM) - RECOMMENDED
+   - large:  n2-standard-16 (16 vCPUs, 64GB RAM)
+
+3. MONITOR PROGRESS
+   ---------------------------------------------------------
+   python cloud/generate_cloud.py --status
+   
+   Shows completed batches and running VMs.
+
+4. DOWNLOAD RESULTS
+   ---------------------------------------------------------
+   python cloud/generate_cloud.py --download
+   
+   Downloads all batch_mpv_*.zst files from GCS to generated_data/
+
+5. CLEANUP (IMPORTANT - to avoid charges)
+   ---------------------------------------------------------
+   gcloud compute instances list
+   gcloud compute instances delete <vm-names> --zone=us-central1-a --quiet
+
+
+================================================================================
+TIME ESTIMATES
+================================================================================
+
+Based on actual measurements with n2-standard-8 (8 vCPUs, 7 workers):
+
+| Games per VM | MOVE_TIME | Approx Time | Notes                    |
+|--------------|-----------|-------------|--------------------------|
+| 1,000        | 20ms      | ~15 min     | Good for testing         |
+| 20,000       | 20ms      | ~85 min     | Current production config|
+| 20,000       | 10ms      | ~45 min     | Faster, slightly lower quality |
+
+Formula: time ≈ (games × 90 moves × MOVE_TIME) / num_workers
+
+With 4 VMs generating 20,000 games each at 20ms/move:
+- Total generation time: ~90 minutes
+- Total games: 80,000
+- Estimated cost: ~$0.50-1.00 (Spot pricing)
+
+
+================================================================================
+COMMON ISSUES & SOLUTIONS
+================================================================================
+
+ISSUE 1: "ModuleNotFoundError: No module named 'XXX'"
+------------------------------------------------------
+Cause: Missing dependency in cloud/requirements.txt
+Fix: 
+  1. Add the missing module to cloud/requirements.txt
+  2. Run rebuild_image.bat to rebuild the Docker image
+
+ISSUE 2: "Generated 0 valid games"
+------------------------------------------------------
+Cause: Stockfish path incorrect for Linux
+Fix: The utils.py file must detect OS and use:
+  - Windows: C:\Users\ccbdc\Desktop\stockfish\stockfish-windows-x86-64-avx2.exe
+  - Linux:   /usr/local/bin/stockfish
+
+ISSUE 3: Out of Memory (OOM) / Container crashes
+------------------------------------------------------
+Cause: Using highcpu machines (1GB RAM per core)
+Fix: Use n2-standard machines instead (4GB RAM per core)
+  - n2-highcpu-8: 8GB RAM total - TOO SMALL
+  - n2-standard-8: 32GB RAM total - RECOMMENDED
+
+ISSUE 4: "Quota 'CPUS_ALL_REGIONS' exceeded"
+------------------------------------------------------
+Cause: Trying to launch more VMs than quota allows
+Fix: 
+  - Check current usage: gcloud compute instances list
+  - Delete terminated VMs to free quota
+  - Maximum: 32 vCPUs total (4x n2-standard-8)
+
+ISSUE 5: Double .zst.zst extension
+------------------------------------------------------
+Cause: save_batch() was adding .zst even if path already ended in .zst
+Fix: Already fixed in data_utils.py - checks if path ends with .zst first
+
+ISSUE 6: VM starts but no progress
+------------------------------------------------------
+Debug steps:
+  1. Check Docker is running:
+     gcloud compute ssh <vm-name> --zone=us-central1-a --command="docker ps"
+  
+  2. Check container logs:
+     gcloud compute ssh <vm-name> --zone=us-central1-a --command="docker logs <container-name>"
+  
+  3. Check system resources:
+     gcloud compute ssh <vm-name> --zone=us-central1-a --command="top -b -n 1 | head -20"
+
+
+================================================================================
+MANUAL VM MANAGEMENT
+================================================================================
+
+List all VMs:
+  gcloud compute instances list
+
+Delete specific VMs:
+  gcloud compute instances delete vm1 vm2 vm3 --zone=us-central1-a --quiet
+
+SSH into a VM:
+  gcloud compute ssh <vm-name> --zone=us-central1-a
+
+View VM serial console (boot logs):
+  gcloud compute instances get-serial-port-output <vm-name> --zone=us-central1-a
+
+Check GCS bucket contents:
+  gsutil ls gs://chess-migration-gen-lang-c/input/
+  gsutil ls gs://chess-migration-gen-lang-c/status/
+
+
+================================================================================
+COST MANAGEMENT
+================================================================================
+
+Spot VM Pricing (us-central1, approximate):
+- n2-standard-8: ~$0.08/hour per VM
+- 4 VMs × 1.5 hours = ~$0.48 per batch of 80,000 games
+
+Storage Costs:
+- GCS bucket: Currently ~1.65 GB, costs ~$0.03/month
+- Consider cleaning up old batches: gsutil rm gs://chess-migration-gen-lang-c/input/batch_mpv_*.zst
+
+IMPORTANT: Always delete VMs after use!
+- Spot VMs self-terminate on completion, but terminated VMs still appear in list
+- Terminated VMs don't cost money, but should be deleted for cleanliness
+- Use: gcloud compute instances delete <names> --zone=us-central1-a --quiet
+
+
+================================================================================
+FILE STRUCTURE
+================================================================================
+
+cloud/
+├── Dockerfile           # Container definition (Python 3.11 + Stockfish)
+├── requirements.txt     # Python dependencies for container
+├── generate_cloud.py    # Main launcher script (--launch, --status, --download)
+├── queue_manager.py     # Automated batch queuing (for quota management)
+├── launch_test.bat      # Quick test launch script
+└── rebuild_image.bat    # Rebuilds Docker image after code changes
+
+Key files that get copied to Docker image:
+- config.py
+- utils.py
+- data_utils.py
+- generate_data.py
+- cloud_generate.py
+- migrate_mpv_moves.py
+
+
+================================================================================
+BATCH NAMING CONVENTION
+================================================================================
+
+- batch_mpv_1.zst to batch_mpv_26.zst: Migrated from legacy data
+- batch_mpv_27.zst onwards: Newly generated in cloud (2026-01-09)
+- batch_mpv_test.zst: Test batch (1000 games)
+
+Each batch contains ~20,000 games with:
+- Board states (18 channels × 8×8)
+- Move labels (AlphaZero encoding)
+- Importance weights
+- Multi-PV data: cp_scores, mate_scores, depths, move_indices (5 PVs each)
