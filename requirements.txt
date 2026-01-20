@@ -1,0 +1,10 @@
+chess
+python-chess
+torch
+numpy
+flask
+flask-cors
+zstandard
+pandas
+matplotlib
+scipy

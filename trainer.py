@@ -11,9 +11,83 @@ from tqdm import tqdm
 from config import (DEVICE, AMP_DTYPE, USE_AMP, TRAIN_MODE, LEARNING_RATE, 
                    LR_WARMUP_STEPS, MIN_LR,
                    SAVE_DIR, DATA_CHANNELS, USE_HISTORY,
-                   USE_DYNAMIC_IMPORTANCE, USE_IMPORTANCE_WEIGHT, EV_TANH_K)
+                   USE_DYNAMIC_IMPORTANCE, USE_IMPORTANCE_WEIGHT, EV_TANH_K,
+                   USE_MARGIN_LOSS, MARGIN_SCALE)
 from data_utils import ChessDataset, PositionDataset, collate_fn, load_history, save_history, update_plot
 from elo_tracker import EloTracker
+
+class RegretMarginLoss(nn.Module):
+    """
+    Regret-Based Margin Ranking Loss.
+    Encourages the best move's logit to be higher than other moves' logits
+    by a margin proportional to their EV (Expected Value) difference.
+    """
+    def __init__(self, margin_scale=MARGIN_SCALE, k=EV_TANH_K):
+        super(RegretMarginLoss, self).__init__()
+        self.margin_scale = margin_scale
+        self.k = k
+
+    def scores_to_win_prob(self, cp, mate):
+        cp_eff = cp.float()
+        mate_mask = mate != 0
+        if mate_mask.any():
+            mate_scores = torch.where(mate > 0, 10000.0 - mate.float(), -10000.0 - mate.float())
+            cp_eff = torch.where(mate_mask, mate_scores, cp_eff)
+        return 0.5 + 0.5 * torch.tanh(cp_eff / self.k)
+
+    def forward(self, inputs, targets, weights=None, mpv_data=None):
+        # inputs: [N, 4672] (logits)
+        
+        if mpv_data and len(mpv_data) >= 4:
+            mpv_cp, mpv_mate, mpv_depth, mpv_moves = mpv_data[0:4]
+            mpv_scores = self.scores_to_win_prob(mpv_cp, mpv_mate)
+            
+            # 1. Identify best move logit (safely)
+            best_move_idx = mpv_moves[:, 0]
+            valid_best = (best_move_idx != -1)
+            
+            # If no valid best moves in batch, fallback to standard CE
+            if not valid_best.any():
+                return F.cross_entropy(inputs, targets, reduction='none', ignore_index=-1).mean()
+            
+            # Safe gathering: Replace -1 with 0, but we will mask the result later
+            safe_best_idx = best_move_idx.clone()
+            safe_best_idx[~valid_best] = 0
+            best_logits = torch.gather(inputs, 1, safe_best_idx.unsqueeze(1)) # [N, 1]
+            
+            # 2. Calculate margins for known moves
+            mask = mpv_moves != -1
+            margins_known = (mpv_scores[:, 0:1] - mpv_scores) * self.margin_scale
+            
+            # Gather logits for known moves (masking invalid moves to 0)
+            safe_moves = mpv_moves.clone()
+            safe_moves[~mask] = 0
+            known_logits = torch.gather(inputs, 1, safe_moves)
+            
+            loss_known = torch.relu(known_logits - best_logits + margins_known)
+            loss_known = (loss_known * mask.float()).sum(dim=1)
+            
+            # 3. Handle unknown moves as "Blunders" (EV=0)
+            blunder_margin = mpv_scores[:, 0:1] * self.margin_scale
+            
+            # Vectorized calculation for all moves
+            loss_all = torch.relu(inputs - best_logits + blunder_margin) # [N, 4672]
+            
+            # Subtract the components of the EVALUATED moves from the global sum
+            # and add their actual specific evaluation-based loss terms.
+            loss_all_at_mpv = torch.gather(loss_all, 1, safe_moves)
+            batch_loss = loss_all.sum(dim=1) - (loss_all_at_mpv * mask.float()).sum(dim=1) + loss_known
+            
+            # Mask out samples where the best move index was invalid
+            batch_loss = batch_loss * valid_best.float()
+        else:
+            # Fallback to standard CE if MPV data is missing
+            batch_loss = F.cross_entropy(inputs, targets, reduction='none', ignore_index=-1)
+            
+        if weights is not None:
+            batch_loss = batch_loss * weights
+            
+        return batch_loss.mean()
 
 class WeightedCrossEntropyLoss(nn.Module):
     def __init__(self, ignore_index=-1):
@@ -98,7 +172,7 @@ def evaluate(model, val_loader, criterion, device):
             mask = flat_labels != -1
             
             if mask.any():
-                if isinstance(criterion, WeightedCrossEntropyLoss):
+                if isinstance(criterion, (WeightedCrossEntropyLoss, RegretMarginLoss)):
                     mpv_data = []
                     if len(batch) > 3:
                         for j in range(3, len(batch)):
@@ -128,7 +202,10 @@ class Trainer:
             self.optimizer, mode='min', factor=0.7, patience=1, min_lr=MIN_LR, threshold=0.005
         )
         
-        self.criterion = WeightedCrossEntropyLoss(ignore_index=-1)
+        if USE_MARGIN_LOSS:
+            self.criterion = RegretMarginLoss()
+        else:
+            self.criterion = WeightedCrossEntropyLoss(ignore_index=-1)
             
         self.scaler = torch.amp.GradScaler('cuda', enabled=USE_AMP)
         self.history = load_history()
@@ -158,7 +235,7 @@ class Trainer:
                     target_labels = labels.view(-1)
                     target_weights = weights.view(-1) if weights is not None else None
                     
-                    if isinstance(self.criterion, WeightedCrossEntropyLoss):
+                    if isinstance(self.criterion, (WeightedCrossEntropyLoss, RegretMarginLoss)):
                         mpv_data = []
                         if len(batch) > 3:
                             for j in range(3, len(batch)):

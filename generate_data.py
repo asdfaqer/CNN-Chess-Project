@@ -48,7 +48,8 @@ def worker_generate_games(args: Tuple[int, str, float, int, bool, int]) -> List[
     
     try:
         engine = chess.engine.SimpleEngine.popen_uci(sf_path)
-    except Exception:
+    except Exception as e:
+        print(f"[ERROR] Worker failed to start Stockfish at {sf_path}: {e}")
         return []
 
     limit = chess.engine.Limit(time=m_time)

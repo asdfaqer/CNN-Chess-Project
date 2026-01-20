@@ -12,7 +12,7 @@ from tqdm import tqdm
 from config import (DATA_CACHE_DIR, GLOBAL_VAL_FILE, DEVICE, TRAIN_MODE, 
                    DATA_CHANNELS, INITIAL_CHECKPOINT, USE_COMPILE, 
                    PATIENCE, MINIBATCH_SIZE, USE_HISTORY, SAVE_DIR, SEED,
-                   AMP_DTYPE, USE_AMP, TRAIN_EPOCHS_PER_BATCH)
+                   AMP_DTYPE, USE_AMP, TRAIN_EPOCHS_PER_BATCH, BACKGROUND_GEN)
 from data_utils import decompress_data, ChessDataset, PositionDataset, collate_fn, simple_collate, load_history, load_batch, get_latest_checkpoint
 from trainer import Trainer
 from model import ChessRCCN
@@ -52,8 +52,12 @@ def main():
     print("[*] Background generator output redirected to 'datagen.log'")
     # 1. Start Background Generator (Producer)
     # MUST be non-daemonic because it spawns its own multiprocessing Pool
-    p_gen = multiprocessing.Process(target=background_generator_process, daemon=False)
-    p_gen.start()
+    p_gen = None
+    if BACKGROUND_GEN:
+        p_gen = multiprocessing.Process(target=background_generator_process, daemon=False)
+        p_gen.start()
+    else:
+        print("[*] Background generator is DISABLED in config.")
     
     try:
         # 2. Initialize Model & Trainer
@@ -203,15 +207,16 @@ def main():
             trainer.log_epoch_end(epoch_metrics)
             trainer.step_scheduler(val_loss)
             
-            print(f"Epoch {current_epoch} Complete | Loss: {avg_loss:.4f} | Val: {val_loss:.4f} | Top-1: {val_acc1*100:.2f}%")
+            print(f"Epoch {current_epoch} Complete | Loss: {avg_loss:.4f} | Val: {v_loss:.4f} | Top-1: {v_acc1*100:.2f}%")
             
             current_epoch += 1
             trainer.clear_cache()
 
     finally:
         print("[ORCHESTRATOR] Shutting down background generator...")
-        p_gen.terminate()
-        p_gen.join()
+        if p_gen:
+            p_gen.terminate()
+            p_gen.join()
 
 if __name__ == "__main__":
     main()

@@ -1,35 +1,83 @@
-# Chess RCCN (Recurrent Convolutional Neural Network)
+# Chess CNN: AI Bot & Training Pipeline
 
-A high-performance chess engine training pipeline using PyTorch. This project implements a Recurrent Convolutional Neural Network (RCCN) with support for simultaneous data generation and training.
+Welcome to the **Chess CNN** project. This repository contains a full-stack implementation of a Convolutional Neural Network (CNN) trained to play high-level chess. Using a custom training pipeline and Stockfish-based data generation, this model achieves significant performance improvements over standard CNN architectures.
 
-## Features
+## Quick Start: Play Against the Bot
 
-- **RCCN Architecture**: Hybrid model combining CNN feature extraction with optional LSTM history processing.
-- **Simultaneous Pipeline**: Background data generation with Stockfish multi-PV analysis while the model trains on previous batches.
-- **Dynamic Importance Weighting**: Loss function adjusted based on the EV gap between model predictions and Stockfish's top moves.
-- **Advanced LR Scheduling**: Linear warmup (1000 steps) with 1/8th-epoch validation milestones using `ReduceLROnPlateau`.
-- **Zstandard Compression**: Efficient storage of massive move-level datasets.
-- **Automated Elo Tracking**: Integrated round-robin tournament evaluation anchored against Stockfish.
+We have developed a premium web interface for you to test the model's capabilities in real-time.
+
+1.  **Install Dependencies**:
+    ```bash
+    pip install -r requirements.txt
+    ```
+2.  **Start the Backend**:
+    ```bash
+    cd web_app
+    python app.py
+    ```
+3.  **Open the UI**:
+    Open `web_app/index.html` in your favorite web browser.
+4.  **Play**:
+    Make your moves on the board. The model will analyze the position (including move history) and respond with its best move and evaluation.
+
+---
+
+## Model Performance (Checkpoint v1)
+
+The v1 checkpoint represents our first major training run using the CNN architecture. Below is the training progress demonstrated through loss and accuracy curves.
+
+![Training Progress](checkpoints_v1/training_progress.png)
+
+### Key Metrics:
+- **Architecture**: 102-channel input (8-ply history), 64 hidden dimensions.
+- **Training Duration**: 7 Epochs.
+- **Peak Accuracy**: Achieved high policy alignment with Stockfish 16.1.
+- **Estimated Elo**: ~1800-2100 depending on the gauntlet level.
+
+---
+
+## Testing Walkthrough
+
+To rigorously test the model and reproduce our results, follow these steps:
+
+### 1. Verification of Environment
+Ensure your Stockfish path is correctly set in `utils.py`. You can verify your setup by running:
+```bash
+python verify_test_batch.py
+```
+
+### 2. Running a Gauntlet Match
+To see how the bot performs against Stockfish at different Elo levels, use the `play.py` script:
+```bash
+python play.py --checkpoint checkpoints_v1/epoch_7.pt
+```
+This will run a series of matches against Stockfish at Elos 1320, 1500, and 2000.
+
+### 3. Elo Refinement & Tournament
+For a more detailed evaluation, we use a round-robin tournament format:
+```bash
+python run1_tournament_rr.py
+```
+Results are saved to `run1_elo_refinement.json`, which tracks the Elo progression across training epochs.
+
+### 4. Direct Move Analysis
+You can use `play.py` in interactive mode (if modified) or simply observe the `web_app` evaluation logs to see how the model ranks candidate moves. The policy head outputs logits that correlate with move quality.
+
+---
+
+## Architecture & Pipeline
+
+- **Data Generation**: `generate_data.py` uses multi-PV analysis to find the "Ground Truth" and alternative moves.
+- **Importance Weighting**: We use a dynamic loss weight based on the EV gap, focusing the model's learning on "critical" mistakes.
+- **Zstandard Pipeline**: Datasets are compressed using `zstd` to allow for massive training sets with minimal disk footprint.
+- **Orchestration**: `orchestrator.py` manages the seamless transition between data generation and GPU training.
+
+---
 
 ## Project Structure
 
-- `model.py`: Neural network architecture.
-- `trainer.py`: Core training loop, scheduler, and validation logic.
-- `orchestrator.py`: Manages the generation-training cycle.
-- `generate_data.py`: Multi-threaded data generation using Stockfish.
-- `config.py`: Centralized hyperparameters and path settings.
-- `elo_tracker.py`: Tools for model vs. model and model vs. engine matches.
-
-## Getting Started
-
-1. Set up your Stockfish path in `utils.py` or via environment variables.
-2. Generate validation data: `python gen_val_data.py`
-3. Start the training pipeline: `python orchestrator.py`
-
-## Configuration
-
-Edit `config.py` to adjust:
-- Learning rate and warmup steps.
-- Dataset sizes and batching.
-- Model architecture (CNN_ONLY vs FULL).
-- Hardware utilization (AMP, Compile, Workers).
+- `/web_app`: Premium Flask-based web interface.
+- `/checkpoints_v1`: Logs, history, and weights for the first stable run.
+- `model.py`: The RCCN PyTorch definition.
+- `trainer.py`: Custom training loop with linear warmup and milestones.
+- `utils.py`: Bitboard encoding and board canonicalization logic.

@@ -20,8 +20,17 @@ class EloTracker:
     
     def _get_engine(self):
         """Get or create a thread-local Stockfish engine."""
-        if not hasattr(self._thread_local, "engine"):
-            self._thread_local.engine = chess.engine.SimpleEngine.popen_uci(self.stockfish_path)
+        if not hasattr(self._thread_local, "engine") or self._thread_local.engine is None:
+            if not os.path.exists(self.stockfish_path) and not self.stockfish_path.endswith(".exe"):
+                 # If it's just 'stockfish', it might be in PATH, so we can't os.path.exists it easily
+                 pass 
+            
+            try:
+                self._thread_local.engine = chess.engine.SimpleEngine.popen_uci(self.stockfish_path)
+            except Exception as e:
+                print(f"[ERROR] Could not start Stockfish engine at {self.stockfish_path}: {e}")
+                print(f"Please check your STOCKFISH_PATH in utils.py")
+                raise FileNotFoundError(f"Stockfish not found at {self.stockfish_path}")
         return self._thread_local.engine
 
     def __del__(self):

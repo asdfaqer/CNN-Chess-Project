@@ -5,10 +5,41 @@ import os
 import platform
 
 # --- CONFIGURATION ---
-if platform.system() == "Windows":
-    STOCKFISH_PATH = r"C:\Users\ccbdc\Desktop\stockfish\stockfish-windows-x86-64-avx2.exe"
-else:
-    STOCKFISH_PATH = "/usr/local/bin/stockfish"
+def _find_stockfish():
+    if platform.system() == "Windows":
+        # Check specific hardcoded path
+        primary = r"D:\stockfish\stockfish-windows-x86-64-avx2.exe"
+        if os.path.exists(primary):
+            return primary
+        
+        secondary = r"C:\Users\ccbdc\Desktop\stockfish\stockfish-windows-x86-64-avx2.exe"
+        if os.path.exists(secondary):
+            return secondary
+        
+        # Check standard desktop folder (assuming user moved it or folder name changed)
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        search_dirs = [
+            desktop,
+            os.path.join(desktop, "stockfish"),
+            "C:\\stockfish",
+            "."
+        ]
+        
+        for d in search_dirs:
+            if not os.path.exists(d): continue
+            for f in os.listdir(d):
+                if "stockfish" in f.lower() and f.lower().endswith(".exe"):
+                    return os.path.abspath(os.path.join(d, f))
+        
+        return "stockfish.exe" # Fallback to PATH
+    else:
+        # Linux/macOS
+        for p in ["/usr/local/bin/stockfish", "/usr/bin/stockfish", "stockfish"]:
+            if os.path.exists(p): return p
+        return "stockfish"
+
+STOCKFISH_PATH = _find_stockfish()
+print(f"[*] Using Stockfish at: {STOCKFISH_PATH}")
 
 def encode_move(move: chess.Move, turn: chess.Color) -> int:
     """
