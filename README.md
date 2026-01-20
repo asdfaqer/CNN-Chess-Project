@@ -32,7 +32,7 @@ The v1 checkpoint represents our first major training run using the CNN architec
 - **Architecture**: 102-channel input (8-ply history), 64 hidden dimensions.
 - **Training Duration**: 7 Epochs.
 - **Peak Accuracy**: Achieved high policy alignment with Stockfish 16.1.
-- **Estimated Elo**: ~1800-2100 depending on the gauntlet level.
+- **Estimated Elo**: ~1500-1800 depending on the gauntlet level.
 
 ---
 
