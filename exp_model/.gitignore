@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Data and Checkpoints (Large Files)
+checkpoints/
+checkpoints_v1/
+generated_data/
+generated_data_backup/
+*.pt
+*.zst
+*.log
+batch_status.json
+run1_round_robin_results.json
+run1_elo_refinement.json
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

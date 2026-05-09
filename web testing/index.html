@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Python Chess AI</title>
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.min.js"></script>
+
+    <style>
+      /* Styles for the promotion popup */
+      #promotion-popup {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: #f0f0f0;
+        border: 2px solid #333;
+        padding: 20px;
+        z-index: 1000;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+      }
+      .promotion-pieces img {
+        width: 60px;
+        height: 60px;
+        cursor: pointer;
+        padding: 5px;
+        background: #fff;
+        border: 1px solid #999;
+        margin: 5px;
+      }
+      .promotion-pieces img:hover {
+        background: #e0e0e0;
+      }
+    </style>
+</head>
+<body>
+    <h2>Play Against My Python AI</h2>
+
+    <div id="ai-controls" style="margin-top: 10px; margin-bottom: 10px; background: #f9f9f9; border: 1px solid #ccc; padding: 10px; border-radius: 5px; max-width: 380px;">
+      <div>
+        <label for="ai-selector" style="margin-right: 10px;"><b>Opponent:</b></label>
+        <select id="ai-selector">
+          <option value="fast" selected>Fast AI (Policy)</option>
+          <option value="mcts">Strong AI (MCTS)</option>
+        </select>
+      </div>
+      <div style="margin-top: 10px;">
+        <label for="time-selector" style="margin-right: 10px;"><b>Think Time:</b></label>
+        <select id="time-selector">
+          <option value="1">1 second</option>
+          <option value="3" selected>3 seconds</option>
+          <option value="5">5 seconds</option>
+          <option value="10">10 seconds</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="myBoard" style="width: 400px"></div>
+    <p>Status: <span id="status"></span></p>
+
+    <div id="promotion-popup" style="display: none;">
+      <h4>Choose a piece to promote to:</h4>
+      <div class="promotion-pieces">
+        <img src="img/chesspieces/alpha/wQ.png" data-piece="q" class="promotion-piece" alt="Queen">
+        <img src="img/chesspieces/alpha/wR.png" data-piece="r" class="promotion-piece" alt="Rook">
+        <img src="img/chesspieces/alpha/wB.png" data-piece="b" class="promotion-piece" alt="Bishop">
+        <img src="img/chesspieces/alpha/wN.png" data-piece="n" class="promotion-piece" alt="Knight">
+      </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
